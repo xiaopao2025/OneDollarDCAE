@@ -67,12 +67,13 @@ describe("OneDollarDCAE Contract", function () {
         );
         
         const swapETHForUSDC = async (signer) => {
+            const blockTimestamp = await time.latest();
             const params = {
                 tokenIn: addresses.WETH9,
                 tokenOut: addresses.usdc,
                 fee: 3000, // 0.3% fee tier
                 recipient: signer.address,
-                deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
+                deadline: blockTimestamp + 60 * 10, // 10 minutes from current block time
                 amountIn: ethers.parseEther("1"),
                 amountOutMinimum: 0, // Note: In production, should use quoter to set proper slippage
                 sqrtPriceLimitX96: 0
@@ -163,11 +164,9 @@ describe("OneDollarDCAE Contract", function () {
         
         it("Should allow USDC withdrawal", async function () {
             const initialBalance = await usdcToken.balanceOf(user1.address);
-            console.log("user1 initialBalance:",initialBalance);
             await dcae.connect(user1).withdrawUSDC();
             
             const finalBalance = await usdcToken.balanceOf(user1.address);
-            console.log("user1 finalBalance:",finalBalance);
             expect(finalBalance - initialBalance).to.equal(MIN_INVEST_AMOUNT * 1n);
         });
         

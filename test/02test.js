@@ -62,14 +62,15 @@ describe("OneDollarDCAE Contract - Mass User Scenario", function () {
         
         // Helper function for ETH to USDC swap
         const swapETHForUSDC = async (signer) => {
+            const blockTimestamp = await time.latest();
             const params = {
                 tokenIn: addresses.WETH9,
                 tokenOut: addresses.usdc,
-                fee: 3000,
+                fee: 3000, // 0.3% fee tier
                 recipient: signer.address,
-                deadline: Math.floor(Date.now() / 1000) + 60 * 10,
+                deadline: blockTimestamp + 60 * 10, // 10 minutes from current block time
                 amountIn: ethers.parseEther("1"),
-                amountOutMinimum: 0,
+                amountOutMinimum: 0, // Note: In production, should use quoter to set proper slippage
                 sqrtPriceLimitX96: 0
             };
 

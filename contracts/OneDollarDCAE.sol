@@ -93,13 +93,15 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
     }
 
     function setInvestAmount(uint256 amount) external {
+        require(userInfo[msg.sender].balance > 0, "No deposited");
         require(amount >= MIN_INVEST_AMOUNT && amount <= 1000 * MIN_INVEST_AMOUNT, "Amount in 1~1000USDC");
         userInfo[msg.sender].investAmount = amount;
 
     }
     function setRewardRatio(uint256 amount) external {
+        require(userInfo[msg.sender].balance > 0, "No deposited");
         require(amount >= 50 && amount <= 1000, "Amount in 10~1000");
-        userInfo[msg.sender].investAmount = amount;
+        userInfo[msg.sender].rewardRatio = amount;
 
     }
 
@@ -212,7 +214,7 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         uint256 minOutput = _getMinOutput(amountIn);
 
         if(IERC20(usdc).allowance(address(this), address(swapRouter)) < amountIn){
-            TransferHelper.safeApprove(usdc, address(swapRouter), amountIn);
+            TransferHelper.safeApprove(usdc, address(swapRouter), type(uint256).max);
         }
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
@@ -227,7 +229,11 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         });
 
 
-        return swapRouter.exactInputSingle(params);
+        try swapRouter.exactInputSingle(params) returns (uint256 amountOut) {
+            return amountOut;
+        } catch Error(string memory reason) {
+            revert(reason);
+        }
     }
 
     // The _distributeCaller function allows the caller to claim their share of the reward.
@@ -257,7 +263,7 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
     }
 
     function updateFee(uint24 newFee) external onlyOwner {
-        require(newFee == 500 || newFee == 3000 || newFee == 10000, "Invalid slippage");
+        require(newFee == 500 || newFee == 3000 || newFee == 10000, "Invalid fee");
         fee = newFee;
         emit FeeUpdated(newFee);
     }
@@ -265,6 +271,7 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
     // The burnForFee function allows users to burn their DCAE tokens to claim their reward in wETH.
     function burnForFee() external nonReentrant {
         require(block.timestamp > userInfo[msg.sender].burnTime, "Burn interval not passed");
+        userInfo[msg.sender].burnTime = block.timestamp + INVESTMENT_INTERVAL;
         uint256 dcaeBalance = dcaeToken.balanceOf(msg.sender);
         require(dcaeBalance > 0, "Insufficient DCAE balance");
 
@@ -278,18 +285,19 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         uint256 wETHFee = (contractWETHBalance * dcaeShare) / 1e18;
         require(wETHFee > 0, "Reward too small");
 
-        // Burn the DCAE tokens
+        
+        userInfo[address(this)].wETH -= wETHFee;
+        IERC20(wETH).safeTransfer(msg.sender, wETHFee);
+
+     
         IERC20(dcaeToken).safeTransferFrom(msg.sender, address(this), dcaeBalance);
         dcaeToken.burn(dcaeBalance);
 
-        // Distribute the fee in wETH to the user
-        userInfo[address(this)].wETH -= wETHFee;
-        IERC20(wETH).safeTransfer(msg.sender, wETHFee);
-        userInfo[msg.sender].burnTime = block.timestamp + INVESTMENT_INTERVAL;
+        
 
         emit Burned(msg.sender, dcaeBalance, wETHFee);
-        
     }
+
 
     
 }
