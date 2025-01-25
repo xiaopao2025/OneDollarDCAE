@@ -8,13 +8,26 @@ const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
 
 module.exports = {
   solidity: {
-    version: "0.8.28",
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 200
+    compilers: [
+      {
+        version: "0.8.28",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200
+          }
+        }
+      },
+      {
+        version: "0.7.6",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200
+          }
+        }
       }
-    }
+    ]
   },
   
   networks: {
@@ -22,11 +35,14 @@ module.exports = {
     hardhat: {
       forking: {
         url: `https://cloudflare-eth.com`,
-        blockNumber: 21671385 // 指定要fork的区块高度
+        blockNumber: 21694444 // 指定要fork的区块高度
       },
       chainId: 1337,
       gasPrice: "auto",
-      initialBaseFeePerGas: 0
+      initialBaseFeePerGas: 0,
+      accounts:{
+        count: 51
+      }
     },
     
     // 本地开发网络

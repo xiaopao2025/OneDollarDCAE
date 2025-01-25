@@ -1,16 +1,15 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const erc20abi = require('erc-20-abi')
+const erc20abi = require('erc-20-abi');
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
-const { addresses } = require("./address.json")
-const { quoterv2abi } = require("./quoterv2.json")
-const { swaprouter02abi } = require("./swaprouter02.json")
+const { addresses } = require("./address.json");
+const { swaprouterabi } = require("./swaprouter.json");
 
 describe("OneDollarDCAE Contract", function () {
-    let owner, user1, user2, user3, user4,dcaeAddress;
-    let dcae, dcaeTokenContract,usdcToken, wstETHToken, quoterV2, swapRouter;
-    let OneDollarDCAE;
+    let owner, user1, user2, user3, user4;
+    let oracle, dcae, dcaeTokenContract, usdcToken, wETHToken, swapRouter;
+    let Oracle, OneDollarDCAE;
     
     const USDC_AMOUNT = ethers.parseUnits("1000", 6); // 1000 USDC
     const MIN_INVEST_AMOUNT = ethers.parseUnits("1", 6); // 1 USDC
@@ -25,36 +24,40 @@ describe("OneDollarDCAE Contract", function () {
             ethers.provider
         );
 
-        wstETHToken = new ethers.Contract(
-            addresses.wstETH,
+        wETHToken = new ethers.Contract(
+            addresses.wETH,
             erc20abi,
             ethers.provider
         );
 
-        quoterV2 = new ethers.Contract(
-            addresses.quoterv2,
-            quoterv2abi,
+        swapRouter = new ethers.Contract(
+            addresses.swaprouter, 
+            swaprouterabi,
             ethers.provider
         );
 
-        swapRouter = new ethers.Contract(
-            addresses.swaprouter02,
-            swaprouter02abi,
-            ethers.provider
+        // Deploy Oracle contract
+        Oracle = await ethers.getContractFactory("Oracle");
+        oracle = await Oracle.deploy(
+            addresses.factory,
+            addresses.usdc,
+            addresses.wETH
         );
-        
+
+        await oracle.waitForDeployment();
+        const oracleAddress = await oracle.getAddress();
+
         // Deploy DCA contract
         OneDollarDCAE = await ethers.getContractFactory("OneDollarDCAE");
         dcae = await OneDollarDCAE.deploy(
             addresses.usdc,
-            addresses.wstETH,
-            addresses.quoterv2,
-            addresses.swaprouter02
+            addresses.wETH,
+            oracleAddress,
+            addresses.swaprouter // Updated router address
         );
 
         await dcae.waitForDeployment();
-
-        dcaeAddress = await dcae.getAddress();
+        const dcaeAddress = await dcae.getAddress();
 
         const dcaeTokenAddress = await dcae.dcaeToken();
         dcaeTokenContract = new ethers.Contract(
@@ -63,7 +66,6 @@ describe("OneDollarDCAE Contract", function () {
             ethers.provider
         );
         
-        // Swap 1 ETH for USDC for each user
         const swapETHForUSDC = async (signer) => {
             const params = {
                 tokenIn: addresses.WETH9,
@@ -89,16 +91,6 @@ describe("OneDollarDCAE Contract", function () {
         await swapETHForUSDC(user3);
         await swapETHForUSDC(user4);
 
-        //console.log("Swapped Finished.")
-        //console.log("ERC20 ABI:", erc20abi);
-
-        sym = await usdcToken.symbol()
-        //console.log("Symbol:",sym)
-        // The number of decimals the token uses
-        decimals = await usdcToken.decimals()
-        //console.log("Decimals:",decimals)
-
-
         // Approve DCA contract to spend USDC
         await usdcToken.connect(user1).approve(dcaeAddress, USDC_AMOUNT);
         await usdcToken.connect(user2).approve(dcaeAddress, USDC_AMOUNT);
@@ -106,19 +98,15 @@ describe("OneDollarDCAE Contract", function () {
         await usdcToken.connect(user4).approve(dcaeAddress, USDC_AMOUNT);
     });
     
+    // Rest of the test script remains the same...
+    
     describe("Deposit Functions", function () {
-        it("Should allow multiple users to deposit USDC", async function () {
-            // User1 deposits
+        it("Should allow users to deposit USDC", async function () {
             await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT);
-            expect(await dcae.userBalances(user1.address)).to.equal(MIN_INVEST_AMOUNT);
-            
-            // User2 deposits
-            await dcae.connect(user2).depositUSDC(MIN_INVEST_AMOUNT*2n);
-            expect(await dcae.userBalances(user2.address)).to.equal(MIN_INVEST_AMOUNT*2n);
-            
-            // Check deposited users array
-            expect(await dcae.depositedUsers(0)).to.equal(user1.address);
-            expect(await dcae.depositedUsers(1)).to.equal(user2.address);
+            const user = await dcae.userInfo(user1.address);
+            expect(user.balance).to.equal(MIN_INVEST_AMOUNT);
+            expect(user.exists).to.be.true;
+            expect(user.investAmount).to.equal(MIN_INVEST_AMOUNT);
         });
         
         it("Should reject deposits below minimum amount", async function () {
@@ -129,37 +117,37 @@ describe("OneDollarDCAE Contract", function () {
         });
     });
     
-    describe("Investment Execution", function () {
+   describe("Investment Execution", function () {
         beforeEach(async function () {
-            // Setup mock swap returns
-            //await swapRouter.setMockReturn(ethers.parseEther("0.1")); // 0.1 wstETH per USDC
-            //await quoterV2.setMockQuote(ethers.parseEther("0.1"));
-            
-            // Setup multiple users with deposits
-            await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT*10n);
-            await dcae.connect(user2).depositUSDC(MIN_INVEST_AMOUNT*15n);
-            await dcae.connect(user3).depositUSDC(MIN_INVEST_AMOUNT*20n);
+            await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT * 10n);
+            await dcae.connect(user2).depositUSDC(MIN_INVEST_AMOUNT * 15n);
+            await dcae.connect(user3).depositUSDC(MIN_INVEST_AMOUNT * 20n);
         });
         
         it("Should execute investment for multiple users in batch", async function () {
-            // Fast forward time to allow investment
-            await time.increase(121); // Move past investmentInterval
+            await time.increase(86401);
             
-            // Execute investment for first batch
             await dcae.connect(user4).executeInvestment(0);
             
-            // Check user balances after investment
-            expect(await dcae.userWstETH(user1.address)).to.be.gt(0);
-            expect(await dcae.userWstETH(user2.address)).to.be.gt(0);
-            expect(await dcae.userWstETH(user3.address)).to.be.gt(0);
+            const user1Info = await dcae.userInfo(user1.address);
+            const user2Info = await dcae.userInfo(user2.address);
+            const user3Info = await dcae.userInfo(user3.address);
+            const user4Info = await dcae.userInfo(user4.address);
+
+            expect(user1Info.wETH).to.be.gt(0);
+            expect(user2Info.wETH).to.be.gt(0);
+            expect(user3Info.wETH).to.be.gt(0);
+            expect(user4Info.wETH).to.be.gt(0);
             
-            // Check caller rewards
-            expect(await dcae.userWstETH(user4.address)).to.be.gt(0);
+            expect(await dcaeTokenContract.balanceOf(user1.address)).to.be.gt(0);
+            expect(await dcaeTokenContract.balanceOf(user2.address)).to.be.gt(0);
+            expect(await dcaeTokenContract.balanceOf(user3.address)).to.be.gt(0);
+            expect(await dcaeTokenContract.balanceOf(user4.address)).to.be.gt(0);
         });
         
         it("Should respect investment intervals", async function () {
-            await dcae.connect(user1).executeInvestment(0)
-            await time.increase(1)
+            await dcae.connect(user1).executeInvestment(0);
+            await time.increase(1);
             await expect(
                 dcae.connect(user4).executeInvestment(0)
             ).to.be.revertedWith("Interval not passed");
@@ -168,55 +156,46 @@ describe("OneDollarDCAE Contract", function () {
     
     describe("Withdrawal Functions", function () {
         beforeEach(async function () {
-            await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT*2n);
+            await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT * 2n);
             await time.increase(121);
             await dcae.connect(user4).executeInvestment(0);
         });
         
         it("Should allow USDC withdrawal", async function () {
-
             const initialBalance = await usdcToken.balanceOf(user1.address);
-            const withdrawAmount = MIN_INVEST_AMOUNT*1n;
-            
+            console.log("user1 initialBalance:",initialBalance);
             await dcae.connect(user1).withdrawUSDC();
             
             const finalBalance = await usdcToken.balanceOf(user1.address);
-            expect(finalBalance - initialBalance).to.equal(withdrawAmount);
+            console.log("user1 finalBalance:",finalBalance);
+            expect(finalBalance - initialBalance).to.equal(MIN_INVEST_AMOUNT * 1n);
         });
         
-        it("Should allow wstETH withdrawal and mint DCAE tokens", async function () {
-            const initialWstETH = await dcae.userWstETH(user1.address);
-            await dcae.connect(user1).withdrawWstETH();
+        it("Should allow wETH withdrawal", async function () {
+            await dcae.connect(user1).withdrawWETH();
             
-            expect(await dcae.userWstETH(user1.address)).to.equal(0);
-            
-            expect(await dcaeTokenContract.balanceOf(user1.address)).to.equal(initialWstETH);
+            const user1Info = await dcae.userInfo(user1.address);
+            expect(user1Info.wETH).to.equal(0);
         });
     });
     
     describe("Fee Distribution", function () {
         beforeEach(async function () {
-            // Setup scenario with multiple investments
-            await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT*10n);
-            await dcae.connect(user2).depositUSDC(MIN_INVEST_AMOUNT*10n);
+            await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT * 10n);
+            await dcae.connect(user2).depositUSDC(MIN_INVEST_AMOUNT * 10n);
             await time.increase(121);
             await dcae.connect(user4).executeInvestment(0);
         });
         
         it("Should allow burning DCAE tokens for fees", async function () {
-           
-            // Withdraw wstETH to get DCAE tokens
-            await dcae.connect(user1).withdrawWstETH();
+            await dcae.connect(user1).withdrawWETH();
             const dcaeBalance = await dcaeTokenContract.balanceOf(user1.address);
             
-            // Approve and burn DCAE tokens
-            await dcaeTokenContract.connect(user1).approve(dcaeAddress, dcaeBalance);
+            await dcaeTokenContract.connect(user1).approve(await dcae.getAddress(), dcaeBalance);
             await dcae.connect(user1).burnForFee();
             
-            // Check DCAE tokens were burned
             expect(await dcaeTokenContract.balanceOf(user1.address)).to.equal(0);
-            // Check received wstETH
-            expect(await wstETHToken.balanceOf(user1.address)).to.be.gt(0);
+            expect(await wETHToken.balanceOf(user1.address)).to.be.gt(0);
         });
     });
 });

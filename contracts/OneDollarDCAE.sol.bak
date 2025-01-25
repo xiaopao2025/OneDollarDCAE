@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.17;
 
+import "hardhat/console.sol";
+
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
+//import "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
+//import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+
+interface IOracle {
+    function pool() external view returns (address);
+    function getTwap(uint32 _twapDuration) external view returns (uint256);
+}
 
 contract DCAE is ERC20 {
     address public owner;
@@ -32,22 +40,28 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
     address public immutable usdc;
     address public immutable wstETH;
     DCAE public immutable dcaeToken;
-    IQuoterV2 public immutable quoterv2;
+    //IQuoterV2 public immutable quoterv2;
+    //AggregatorV3Interface internal dataFeed;
+    //IUniswapV3Pool public immutable pool;
+    IOracle public immutable oracle;
     IV3SwapRouter public immutable swapRouter;
 
     uint256 public immutable MAX_USERS = 10000;
     uint256 public immutable investmentInterval = 120; // Investment interval
     uint256 public immutable MIN_INVEST_AMOUNT = 1 * 10**6; // Minimum investment amount in USDC
-    uint256 public immutable rewardRatio = 50; // 0.5% in basis points
-    uint256 public immutable maxRewardRatio = 1000; // 10% max
+    //uint256 public immutable rewardRatio = 50; // 0.5% in basis points
+    //uint256 public immutable maxRewardRatio = 1000; // 10% max
 
-    uint256 public nextInvestmentTime;
+    //uint256 public nextInvestmentTime;
     uint256 public slippage = 10; // Default apply 1% slippage
-    uint256 public batchSize = 100; // Batch size (100 users per batch)
+    uint256 public batchSize = 50; // Batch size (50 users per batch)
+
+    mapping(uint256 => uint256) public batchtime;
     
     mapping(address => uint256) public userBalances;
     mapping(address => uint256) public userWstETH;
     mapping(address => uint256) public userInvestAmount;
+    mapping(address => uint256) public rewardRatio;
 
     address[] public depositedUsers;
     mapping(address => uint256) public userIndex;
@@ -63,14 +77,17 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
     constructor(
         address _usdc,
         address _wstETH,
-        address _quoterv2,
+        //address _quoterv2,
+        address _oracle,
         address _swapRouter
     ) Ownable(msg.sender) {
         usdc = _usdc;
         wstETH = _wstETH;
         swapRouter = IV3SwapRouter(_swapRouter);
-        quoterv2 = IQuoterV2(_quoterv2);
-        nextInvestmentTime = block.timestamp;
+        //quoterv2 = IQuoterV2(_quoterv2);
+        //dataFeed = AggregatorV3Interface(_chainlink);
+        oracle = IOracle(_oracle);
+        //nextInvestmentTime = block.timestamp;
         dcaeToken = new DCAE();
     }
 
@@ -80,6 +97,7 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
             depositedUsers.push(msg.sender);
             added[msg.sender] = true;
             userInvestAmount[msg.sender] = MIN_INVEST_AMOUNT;
+            rewardRatio[msg.sender] = 100;
         }
         IERC20(usdc).safeTransferFrom(msg.sender, address(this), amount);
         userBalances[msg.sender] += amount;
@@ -103,7 +121,7 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
         userWstETH[msg.sender] = 0;
         IERC20(wstETH).safeTransfer(msg.sender, balance);
 
-        dcaeToken.mint(msg.sender, balance);
+        //dcaeToken.mint(msg.sender, balance);
 
         emit Withdrawn(msg.sender, balance);
     }
@@ -163,7 +181,7 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
 
     function executeInvestment(uint256 batchNumber) external nonReentrant {
         uint256 currentTimestamp = block.timestamp;
-        require(currentTimestamp >= nextInvestmentTime, "Interval not passed");
+        require(currentTimestamp >= batchtime[batchNumber], "Interval not passed");
         uint256 totalUSDC = 0;
         uint256 startIndex = batchNumber * batchSize;
         uint256 endIndex = (batchNumber + 1) * batchSize > depositedUsers.length
@@ -181,6 +199,7 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
         address[] memory validInvestors = new address[](endIndex - startIndex);
         uint256[] memory validShares = new uint256[](endIndex - startIndex);
         uint256 investorCount = 0;
+        uint256 totalRewardRatio = 0;
 
         // Collect valid investors and their shares
         for (uint256 i = startIndex; i < endIndex; i++) {
@@ -191,6 +210,7 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
                 validShares[investorCount] = userAmount;
                 totalUSDC += userAmount;
                 investorCount++;
+                totalRewardRatio += rewardRatio[user];
             }
         }
 
@@ -203,7 +223,7 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
 
         require(totalWstETHReceived > 0, "Swap failed or received 0 wstETH");
 
-        uint256 remainingWstETH = _distributeCaller(totalWstETHReceived,currentTimestamp);
+        uint256 remainingWstETH = _distributeCaller(totalWstETHReceived,totalRewardRatio/investorCount);
 
         // Distribute wstETH to investors
         uint256 precisionFactor = 1e18; // Declare precisionFactor once before loop
@@ -214,23 +234,27 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
 
             userWstETH[investor] += investorWstETH;
             userBalances[investor] -= validShares[i];
+
+            dcaeToken.mint(investor, investorWstETH);
         }
 
-        nextInvestmentTime = currentTimestamp + investmentInterval;
+        //nextInvestmentTime = currentTimestamp + investmentInterval;
+        batchtime[batchNumber] = currentTimestamp + investmentInterval;
         emit InvestmentExecuted(totalUSDC, totalWstETHReceived);
     }
 
-    function _distributeCaller(uint256 totalWstETH, uint256 timeStamp) internal returns (uint256 remainingWstETH) {
-        uint256 multiples = (timeStamp- nextInvestmentTime) / investmentInterval;
+    function _distributeCaller(uint256 totalWstETH, uint256 finalRewardRatio) internal returns (uint256 remainingWstETH) {
+        //uint256 multiples = (timeStamp- nextInvestmentTime) / investmentInterval;
 
-        uint256 finalRewardRatio = rewardRatio + multiples * 10;
-        if (finalRewardRatio > maxRewardRatio) {
-            finalRewardRatio = maxRewardRatio;
-        }
+        //uint256 finalRewardRatio = rewardRatio + multiples * 10;
+        //if (finalRewardRatio > maxRewardRatio) {
+        //    finalRewardRatio = maxRewardRatio;
+        //}
 
         uint256 rewardAmount = (totalWstETH * finalRewardRatio) / 10000;
         uint256 finalRewardAmount = rewardAmount * 99 / 100;
         userWstETH[msg.sender] += finalRewardAmount;
+        dcaeToken.mint(msg.sender, finalRewardAmount);
         userWstETH[address(this)] += rewardAmount - finalRewardAmount;
         remainingWstETH = totalWstETH - rewardAmount;
 
@@ -238,8 +262,9 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
     }
 
     function _swapUSDCForWstETH(uint256 amountIn) internal returns (uint256 amountOut) {
-        uint256 minOutput = _getAmountOutMinimum(amountIn,slippage);
+        uint256 minOutput = _getAmountOutMinimum(amountIn);
         require(minOutput > 0, "Invalid minimum output amount");
+
         if(IERC20(usdc).allowance(address(this), address(swapRouter)) < amountIn){
             IERC20(usdc).approve(address(swapRouter), amountIn);
         }
@@ -258,22 +283,20 @@ contract OneDollarDCAE is ReentrancyGuard,Ownable {
         
     }
 
-    function _getAmountOutMinimum(uint256 amountIn, uint256 slipPage) internal returns (uint256) {
+    function _getAmountOutMinimum(uint256 amountIn) internal view returns (uint256 minOutput) {
+        require(amountIn > 0, "Invalid amount");
 
-        IQuoterV2.QuoteExactInputSingleParams memory params = IQuoterV2.QuoteExactInputSingleParams({
-            tokenIn: usdc,
-            tokenOut: wstETH,
-            amountIn: amountIn,
-            fee: 3000,
-            sqrtPriceLimitX96: 0
+        uint256 twapPrice = oracle.getTwap(86400);
+        require(twapPrice > 0, "Invalid TWAP price");
 
-        });
-
-        (uint256 amountOut, , , ) = quoterv2.quoteExactInputSingle(params);
-           
-        uint256 minOutput = (amountOut * (1000 - slipPage)) / 1000;
-
-        return minOutput;
-    }
+        // Calculate output amount based on TWAP price
+        uint256 amountOut = (amountIn * 1e18) / twapPrice;
     
+        // Apply slippage tolerance
+        minOutput = (amountOut * (1000 - slippage)) / 1000;
+    
+        require(minOutput > 0, "Invalid minimum output");
+        return minOutput;
+    
+    }
 }
