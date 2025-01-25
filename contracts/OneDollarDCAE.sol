@@ -230,6 +230,18 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         return swapRouter.exactInputSingle(params);
     }
 
+    // The _distributeCaller function allows the caller to claim their share of the reward.
+    function _distributeCaller(uint256 totalWETH, uint256 finalRewardRatio) internal returns (uint256 remainingWETH) {
+        uint256 rewardAmount = (totalWETH * finalRewardRatio) / 10000;
+        uint256 finalRewardAmount = rewardAmount * 90 / 100;
+
+        userInfo[msg.sender].wETH += finalRewardAmount;
+        dcaeToken.mint(msg.sender, finalRewardAmount);
+
+        userInfo[address(this)].wETH += rewardAmount - finalRewardAmount;
+        remainingWETH = totalWETH - rewardAmount;
+    }
+
 
     function _getMinOutput(uint256 amountIn) internal view returns (uint256) {
         uint256 twapPrice = oracle.getTwap(1800);
@@ -279,15 +291,5 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         
     }
 
-    // The _distributeCaller function allows the caller to claim their share of the reward.
-    function _distributeCaller(uint256 totalWETH, uint256 finalRewardRatio) internal returns (uint256 remainingWETH) {
-        uint256 rewardAmount = (totalWETH * finalRewardRatio) / 10000;
-        uint256 finalRewardAmount = rewardAmount * 90 / 100;
-
-        userInfo[msg.sender].wETH += finalRewardAmount;
-        dcaeToken.mint(msg.sender, finalRewardAmount);
-
-        userInfo[address(this)].wETH += rewardAmount - finalRewardAmount;
-        remainingWETH = totalWETH - rewardAmount;
-    }
+    
 }
