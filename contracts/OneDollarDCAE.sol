@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 pragma abicoder v2;
 
+//import "hardhat/console.sol";
+
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -23,26 +25,30 @@ contract DCAE is ERC20 {
     }
 
     function mint(address to, uint256 amount) external {
-        require(msg.sender == owner, "Only owner can mint");
+        _checkOwner();
         _mint(to, amount);
     }
 
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }
+
+    function _checkOwner() private view {
+        require(msg.sender == owner, "Only owner can mint");
+    }
 }
 
 contract OneDollarDCAE is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
-    // Pack storage variables to reduce gas
+    // Packed storage variables
     struct User {
         uint128 balance;
         uint128 wETH;
         uint64 investAmount;
         uint16 rewardRatio;
         uint64 burnTime;
-        bool exists;
+        uint256 inBatch;
     }
 
     struct Batch {
@@ -50,23 +56,27 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         uint256 nextInvestmentTime;
     }
 
-    // Immutable variables
+    // Immutable variables to prevent unauthorized changes
     address public immutable usdc;
     address public immutable wETH;
     DCAE public immutable dcaeToken;
     IOracle public immutable oracle;
     ISwapRouter public immutable swapRouter;
 
-    // Constant gas-efficient values
-    uint256 public constant MIN_INVEST_AMOUNT = 1 * 10**6; // 1 USDC
-    uint256 public constant INVESTMENT_INTERVAL = 86400; // 86400 seconds
-    uint24 public constant FEE = 3000; // 3000 fee ratio
-    uint256 public constant MAX_BATCH_SIZE = 50;
-    uint256 public constant SLIPPAGE_DENOMINATOR = 1000;
+    // Constant gas-efficient values with safety checks
+    uint256 private constant MIN_INVEST_AMOUNT = 1 * 10**6; // 1 USDC
+    uint256 private constant MAX_INVEST_AMOUNT = 1000 * 10**6; // 1000 USDC
+    uint256 private constant INVESTMENT_INTERVAL = 86400; // 86400 seconds
+    uint24 private constant FEE = 3000; // 3000 fee ratio
+    uint256 private constant MAX_BATCH_SIZE = 30;
+    uint256 private constant SLIPPAGE_DENOMINATOR = 1000;
+    uint256 private constant TWAP_DURATION = 1800; // 30 minutes
+    uint256 private constant MAX_REWARD_RATIO = 1000;
+    uint256 private constant INVESTMENT_BUFFER = 15 minutes;
 
     // Packed state variables
     uint64 public totalUsers;
-    uint64 public totalBatches;
+    //uint64 public totalBatches;
     uint16 public slippage = 10; // Default 1% slippage
 
     mapping(address => User) public userInfo;
@@ -79,12 +89,17 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
     event InvestmentExecuted(address indexed user, uint256 totalUSDC, uint256 wETHReceived);
     event SlippageUpdated(uint16 newSlippage);
 
+    // Prevent initialization of implementation contract
     constructor(
         address _usdc,
         address _wETH,
         address _oracle,
         address _swapRouter
     ) Ownable(msg.sender) {
+        require(_usdc != address(0) && _wETH != address(0) && 
+                _oracle != address(0) && _swapRouter != address(0), 
+                "Invalid address");
+        
         usdc = _usdc;
         wETH = _wETH;
         oracle = IOracle(_oracle);
@@ -93,37 +108,27 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
     }
 
     function setInvestAmount(uint64 amount) external {
-        User storage user = userInfo[msg.sender];
-        require(user.balance > 0, "No deposited");
-        require(amount >= MIN_INVEST_AMOUNT && amount <= 1000 * MIN_INVEST_AMOUNT, "Amount in 1~1000USDC");
-        user.investAmount = amount;
+        _validateUser();
+        require(amount >= MIN_INVEST_AMOUNT && amount <= MAX_INVEST_AMOUNT, "Invalid invest amount");
+        userInfo[msg.sender].investAmount = amount;
     }
 
     function setRewardRatio(uint16 amount) external {
-        User storage user = userInfo[msg.sender];
-        require(user.balance > 0, "No deposited");
-        require(amount >= 50 && amount <= 1000, "Amount in 10~1000");
-        user.rewardRatio = amount;
+        _validateUser();
+        require(amount >= 50 && amount <= MAX_REWARD_RATIO, "Invalid reward ratio");
+        userInfo[msg.sender].rewardRatio = amount;
+    }
+
+    function _validateUser() private view {
+        require(userInfo[msg.sender].balance > 0, "No deposited funds");
     }
 
     function depositUSDC(uint256 amount) external nonReentrant {
         require(amount >= MIN_INVEST_AMOUNT, "Amount too low");
 
         User storage user = userInfo[msg.sender];
-        if (!user.exists) {
-            // Efficient user initialization
-            user.exists = true;
-            user.investAmount = uint64(MIN_INVEST_AMOUNT);
-            user.rewardRatio = 100;
-            user.burnTime = uint64(block.timestamp);
-            
-            unchecked { totalUsers++; }
-
-            // Determine current batch with minimal operations
-            uint256 currentBatch = (totalUsers - 1) / MAX_BATCH_SIZE;
-            
-            unchecked { totalBatches = uint64(currentBatch + 1); }
-            batches[currentBatch].users.push(msg.sender);
+        if (user.inBatch == 0) {
+            _initializeNewUser(user);
         }
 
         unchecked { user.balance += uint128(amount); }
@@ -131,40 +136,88 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         emit Deposited(msg.sender, amount);
     }
 
-    function withdrawUSDC() external nonReentrant {
-        User storage user = userInfo[msg.sender];
-        uint256 balance = user.balance;
-        require(balance > 0, "No USDC to withdraw");
+    function _initializeNewUser(User storage user) private {
+        uint256 currentBatch;
+        
+        unchecked { 
+            totalUsers++;
+            currentBatch = (totalUsers - 1) / MAX_BATCH_SIZE;
+            //totalBatches = uint64(currentBatch + 1);
+        }
+        user.inBatch = currentBatch + 1;
+        user.investAmount = uint64(MIN_INVEST_AMOUNT);
+        user.rewardRatio = 100;
+        user.burnTime = uint64(block.timestamp);
+        
+        batches[user.inBatch].users.push(msg.sender);
+    }
 
-        user.balance = 0;
-        IERC20(usdc).safeTransfer(msg.sender, balance);
-        emit Withdrawn(msg.sender, balance);
+    function withdrawUSDC() external nonReentrant {
+        _withdraw(usdc, "balance");
     }
 
     function withdrawWETH() external nonReentrant {
-        User storage user = userInfo[msg.sender];
-        uint256 balance = user.wETH;
-        require(balance > 0, "No wETH to withdraw");
+        _withdraw(wETH, "wETH");
+    }
 
-        user.wETH = 0;
-        IERC20(wETH).safeTransfer(msg.sender, balance);
+    function _withdraw(address token, string memory balanceType) private {
+        User storage user = userInfo[msg.sender];
+        uint256 balance;
+    
+        if (keccak256(abi.encodePacked(balanceType)) == keccak256(abi.encodePacked("balance"))) {
+            balance = user.balance;
+            user.balance = 0;
+        } else {
+            balance = user.wETH;
+            user.wETH = 0;
+        }
+    
+        require(balance > 0, string(abi.encodePacked("No ", balanceType, " to withdraw")));
+        IERC20(token).safeTransfer(msg.sender, balance);
         emit Withdrawn(msg.sender, balance);
     }
 
     function executeInvestment(uint256 batchNumber) external nonReentrant {
         Batch storage batch = batches[batchNumber];
+        _validateInvestmentEligibility(batch);
+
+        (
+            address[] memory validInvestors, 
+            uint256[] memory validShares, 
+            uint256 totalUSDC, 
+            uint256 totalRewardRatio, 
+            uint256 investorCount
+        ) = _processInvestmentBatch(batch);
+
+        uint256 wETHReceived = _swapUSDCForWETH(totalUSDC);
+        uint256 rewardRatio = totalRewardRatio / batch.users.length;
+
+        uint256 remainingWETH = _distributeCaller(wETHReceived, rewardRatio);
+        _distributeWETHToInvestors(validInvestors, validShares, totalUSDC, investorCount, remainingWETH);
+
+        batch.nextInvestmentTime = block.timestamp + INVESTMENT_INTERVAL;
+        emit InvestmentExecuted(msg.sender, totalUSDC, wETHReceived);
+    }
+
+    function _validateInvestmentEligibility(Batch storage batch) private view {
         require(block.timestamp >= batch.nextInvestmentTime, "Interval not passed");
         require(batch.users.length > 0, "No users in batch");
+    }
 
-        uint256 totalUSDC;
-        uint256 totalRewardRatio;
-
-        // Pre-allocate fixed-size arrays
-        address[] memory validInvestors = new address[](MAX_BATCH_SIZE);
-        uint256[] memory validShares = new uint256[](MAX_BATCH_SIZE);
-        uint256 investorCount;
-
-        // Optimized batch processing
+    function _processInvestmentBatch(Batch storage batch) 
+        private 
+        view 
+        returns (
+            address[] memory validInvestors, 
+            uint256[] memory validShares, 
+            uint256 totalUSDC, 
+            uint256 totalRewardRatio, 
+            uint256 investorCount
+        ) 
+    {
+        validInvestors = new address[](MAX_BATCH_SIZE);
+        validShares = new uint256[](MAX_BATCH_SIZE);
+        
         for (uint256 i; i < batch.users.length; ) {
             User storage user = userInfo[batch.users[i]];
             uint256 investAmount = user.investAmount;
@@ -184,13 +237,16 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         }
 
         require(totalUSDC > 0, "No funds to invest");
-        
-        uint256 wETHReceived = _swapUSDCForWETH(totalUSDC);
-        uint256 rewardRatio = totalRewardRatio / batch.users.length;
+        return (validInvestors, validShares, totalUSDC, totalRewardRatio, investorCount);
+    }
 
-        uint256 remainingWETH = _distributeCaller(wETHReceived, rewardRatio);
-
-        // Efficient WETH and DCAE token distribution
+    function _distributeWETHToInvestors(
+        address[] memory validInvestors, 
+        uint256[] memory validShares, 
+        uint256 totalUSDC, 
+        uint256 investorCount, 
+        uint256 remainingWETH
+    ) private {
         for (uint256 i; i < investorCount; ) {
             address investor = validInvestors[i];
             uint256 share = (validShares[i] * 1e18) / totalUSDC;
@@ -204,24 +260,19 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
 
             dcaeToken.mint(investor, investorWETH);
         }
-
-        batch.nextInvestmentTime = block.timestamp + INVESTMENT_INTERVAL;
-        emit InvestmentExecuted(msg.sender, totalUSDC, wETHReceived);
     }
 
     function _swapUSDCForWETH(uint256 amountIn) internal returns (uint256) {
         uint256 minOutput = _getMinOutput(amountIn);
 
-        if(IERC20(usdc).allowance(address(this), address(swapRouter)) < amountIn){
-            TransferHelper.safeApprove(usdc, address(swapRouter), type(uint256).max);
-        }
+        TransferHelper.safeApprove(usdc, address(swapRouter), amountIn);
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
             tokenIn: usdc,
             tokenOut: wETH,
             fee: FEE,
             recipient: address(this),
-            deadline: block.timestamp + 15 minutes,
+            deadline: block.timestamp + INVESTMENT_BUFFER,
             amountIn: amountIn,
             amountOutMinimum: minOutput,
             sqrtPriceLimitX96: 0
@@ -230,7 +281,10 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         return swapRouter.exactInputSingle(params);
     }
 
-    function _distributeCaller(uint256 totalWETH, uint256 finalRewardRatio) internal returns (uint256 remainingWETH) {
+    function _distributeCaller(uint256 totalWETH, uint256 finalRewardRatio) 
+        internal 
+        returns (uint256 remainingWETH) 
+    {
         uint256 rewardAmount = (totalWETH * finalRewardRatio) / 10000;
         uint256 finalRewardAmount = rewardAmount * 90 / 100;
 
@@ -245,10 +299,10 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
     }
 
     function _getMinOutput(uint256 amountIn) internal view returns (uint256) {
-        uint256 twapPrice = oracle.getTwap(1800);
+        uint256 twapPrice = oracle.getTwap(uint32(TWAP_DURATION));
         require(twapPrice > 0, "Invalid TWAP");
         uint256 amountOut = (amountIn * 1e18) / twapPrice;
-        return (amountOut * (SLIPPAGE_DENOMINATOR - slippage)) / SLIPPAGE_DENOMINATOR;
+        return ( amountOut * (SLIPPAGE_DENOMINATOR - slippage)) / SLIPPAGE_DENOMINATOR;
     }
 
     function updateSlippage(uint16 newSlippage) external onlyOwner {
@@ -259,23 +313,37 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
 
     function burnForFee() external nonReentrant {
         User storage user = userInfo[msg.sender];
+        _validateBurnEligibility(user);
+
+        uint256 dcaeBalance = dcaeToken.balanceOf(msg.sender);
+        uint256 wETHFee = _calculateBurnReward(dcaeBalance);
+
+        _transferBurnRewards(dcaeBalance, wETHFee);
+    }
+
+    function _validateBurnEligibility(User storage user) private {
         require(block.timestamp > user.burnTime, "Burn interval not passed");
         user.burnTime = uint64(block.timestamp + INVESTMENT_INTERVAL);
-        
-        uint256 dcaeBalance = dcaeToken.balanceOf(msg.sender);
-        require(dcaeBalance > 0, "Insufficient DCAE balance");
+    }
 
-        uint256 totalSupply = dcaeToken.totalSupply();
-        require(totalSupply > 0, "No DCAE tokens in circulation");
+    function _calculateBurnReward(uint256 dcaeBalance) private view returns (uint256) {
+        require(dcaeBalance > 0, "Insufficient DCAE balance");
 
         User storage contractUser = userInfo[address(this)];
         require(contractUser.wETH > 0, "No wETH available for rewards");
 
-        // Efficient reward calculation
-        uint256 dcaeShare = (dcaeBalance * 1e18) / totalSupply;
-        uint256 wETHFee = (contractUser.wETH * dcaeShare) / 1e18;
+        uint256 totalSupply = dcaeToken.totalSupply();
+        require(totalSupply > 0, "No DCAE tokens in circulation");
+
+        //uint256 dcaeShare = dcaeBalance / totalSupply;
+        uint256 wETHFee = contractUser.wETH * dcaeBalance / totalSupply;
         require(wETHFee > 0, "Reward too small");
 
+        return wETHFee;
+    }
+
+    function _transferBurnRewards(uint256 dcaeBalance, uint256 wETHFee) private {
+        User storage contractUser = userInfo[address(this)];
         unchecked { contractUser.wETH -= uint128(wETHFee); }
         IERC20(wETH).safeTransfer(msg.sender, wETHFee);
 

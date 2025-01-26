@@ -106,7 +106,7 @@ describe("OneDollarDCAE Contract", function () {
             await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT);
             const user = await dcae.userInfo(user1.address);
             expect(user.balance).to.equal(MIN_INVEST_AMOUNT);
-            expect(user.exists).to.be.true;
+            expect(user.inBatch).to.be.equal(1);
             expect(user.investAmount).to.equal(MIN_INVEST_AMOUNT);
         });
         
@@ -128,7 +128,7 @@ describe("OneDollarDCAE Contract", function () {
         it("Should execute investment for multiple users in batch", async function () {
             await time.increase(86401);
             
-            await dcae.connect(user4).executeInvestment(0);
+            await dcae.connect(user4).executeInvestment(1);
             
             const user1Info = await dcae.userInfo(user1.address);
             const user2Info = await dcae.userInfo(user2.address);
@@ -147,10 +147,10 @@ describe("OneDollarDCAE Contract", function () {
         });
         
         it("Should respect investment intervals", async function () {
-            await dcae.connect(user1).executeInvestment(0);
+            await dcae.connect(user1).executeInvestment(1);
             await time.increase(1);
             await expect(
-                dcae.connect(user4).executeInvestment(0)
+                dcae.connect(user4).executeInvestment(1)
             ).to.be.revertedWith("Interval not passed");
         });
     });
@@ -159,7 +159,7 @@ describe("OneDollarDCAE Contract", function () {
         beforeEach(async function () {
             await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT * 2n);
             await time.increase(121);
-            await dcae.connect(user4).executeInvestment(0);
+            await dcae.connect(user4).executeInvestment(1);
         });
         
         it("Should allow USDC withdrawal", async function () {
@@ -183,7 +183,7 @@ describe("OneDollarDCAE Contract", function () {
             await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT * 10n);
             await dcae.connect(user2).depositUSDC(MIN_INVEST_AMOUNT * 10n);
             await time.increase(121);
-            await dcae.connect(user4).executeInvestment(0);
+            await dcae.connect(user4).executeInvestment(1);
         });
         
         it("Should allow burning DCAE tokens for fees", async function () {

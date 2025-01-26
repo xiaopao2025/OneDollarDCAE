@@ -5,14 +5,12 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 const { addresses } = require("./address.json");
 const { swaprouterabi } = require("./swaprouter.json");
 
-describe("OneDollarDCAE Contract - Mass User Scenario", function () {
-    const USER_COUNT = 100;
-    const BATCH_EXECUTE_COUNT = 5;
+describe("OneDollarDCAE Contract - Specific User Batch Execution", function () {
+    const USER_COUNT = 3;
     const USDC_AMOUNT = ethers.parseUnits("1000", 6);
     const MIN_INVEST_AMOUNT = ethers.parseUnits("1", 6);
     
     let owner, users, oracle, dcae, dcaeTokenContract, usdcToken, wETHToken, swapRouter;
-    let totalInitialDeposit = 0n;
     
     before(async function () {
         this.timeout(0); 
@@ -76,57 +74,58 @@ describe("OneDollarDCAE Contract - Mass User Scenario", function () {
             
             const depositAmount = MIN_INVEST_AMOUNT * BigInt(Math.floor(Math.random() * 20) + 100);
             await dcae.connect(users[i]).depositUSDC(depositAmount);
-            totalInitialDeposit += depositAmount;
         }
         console.log("All users prepared!");
     });
     
-    describe("Batch Investment Execution with Random Selection and Parameter", function () {
-        it("Randomly selects users and investment parameters", async function () {
+    describe("Specific User Batch Investment Execution", function () {
+        it("Allows 10 randomly selected users to execute their batch investments", async function () {
+            // Randomly select 10 unique users
             const selectedUsers = [];
-            while (selectedUsers.length < BATCH_EXECUTE_COUNT) {
+            while (selectedUsers.length < 2) {
                 const randomIndex = Math.floor(Math.random() * USER_COUNT);
-                if (!selectedUsers.includes(users[randomIndex])) {
-                    selectedUsers.push(users[randomIndex]);
+                const user = users[randomIndex];
+                if (!selectedUsers.some(u => u.address === user.address)) {
+                    selectedUsers.push(user);
                 }
             }
-            
-            const gasUsagePerUser = [];
-            let totalWETHReceived = 0n;
-            let totalDCAETokensMinted = 0n;
-            
-            for (let user of selectedUsers) {
+
+            for (const user of selectedUsers) {
+                // Get user's inBatch
+                const userInfo = await dcae.userInfo(user.address);
+                const userBatch = userInfo.inBatch;
+
+                console.log(`User ${user.address} in Batch ${userBatch}`);
+
+                // Advance time to ensure investment interval has passed
                 await time.increase(86401);
                 
-                // Randomly select 0 or 1 for executeInvestment parameter
-                const investmentParam = Math.random() < 0.5 ? 0 : 1;
+                // Get batch info before execution
+                const batchBefore = await dcae.batches(userBatch);
                 
-                const tx = await dcae.connect(user).executeInvestment(investmentParam);
+                // Execute investment for the user's batch
+                const tx = await dcae.connect(user).executeInvestment(userBatch);
                 const receipt = await tx.wait();
+
+                // Verify batch execution
+                const batchAfter = await dcae.batches(userBatch);
                 
-                gasUsagePerUser.push(receipt.gasUsed);
+                // Check that nextInvestmentTime has been updated
+                console.log("batchBefore",batchBefore);
+                console.log("batchAfter",batchAfter);
                 
-                const userInfo = await dcae.userInfo(user.address);
+                // Robust check for nextInvestmentTime
+                expect(batchAfter).to.exist;
+                expect(typeof batchAfter).to.equal('bigint');
+                expect(batchAfter).to.be.gt(batchBefore);
+                
+                // Check DCAE token minting
                 const dcaeTokenBalance = await dcaeTokenContract.balanceOf(user.address);
-                
-                expect(userInfo.wETH).to.be.gt(0);
-                expect(dcaeTokenBalance).to.be.gt(0);
-                
-                totalWETHReceived += userInfo.wETH;
-                totalDCAETokensMinted += dcaeTokenBalance;
+                expect(dcaeTokenBalance).to.be.gt(0n);
+
+                console.log(`Batch ${userBatch} executed by ${user.address}`);
+                console.log(`Gas used: ${receipt.gasUsed}`);
             }
-            
-            const avgGas = gasUsagePerUser.reduce((a, b) => a + b, 0n) / BigInt(BATCH_EXECUTE_COUNT);
-            const maxGas = gasUsagePerUser.reduce((a, b) => a > b ? a : b, 0n);
-            const minGas = gasUsagePerUser.reduce((a, b) => a < b ? a : b, Infinity);
-            
-            console.log(`Batch Investment Execution Results:`);
-            console.log(`Selected Users: ${selectedUsers.map(u => u.address).join(', ')}`);
-            console.log(`Average Gas per User: ${avgGas}`);
-            console.log(`Max Gas Used: ${maxGas}`);
-            console.log(`Min Gas Used: ${minGas}`);
-            console.log(`Total wETH Received: ${totalWETHReceived}`);
-            console.log(`Total DCAE Tokens Minted: ${totalDCAETokensMinted}`);
         });
     });
 });

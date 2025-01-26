@@ -41,9 +41,9 @@ module.exports = {
       gasPrice: "auto",
       initialBaseFeePerGas: 0,
       accounts:{
-        count: 101
+        count: 61
       },
-      timeout: 1000000
+      timeout: 100000000
     },
     
     // 本地开发网络
