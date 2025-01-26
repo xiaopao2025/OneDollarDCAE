@@ -3,34 +3,23 @@ pragma solidity 0.7.6;
 
 //import "hardhat/console.sol";
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 
-contract Oracle is Ownable {
+contract Oracle {
     IUniswapV3Pool public pool;
-    IUniswapV3Factory public factory;
-    uint24 public fee = 3000;
-    address public usdc;
-    address public weth;
-    
+   
     constructor(
         address _factory,
         address _usdc,
         address _weth
-    ) Ownable() {
-        usdc = _usdc;
-        weth = _weth;
-        factory = IUniswapV3Factory(_factory);
-        pool = IUniswapV3Pool(factory.getPool(_usdc, _weth, fee));   
+    ) {
+
+        IUniswapV3Factory factory = IUniswapV3Factory(_factory);
+        pool = IUniswapV3Pool(factory.getPool(_usdc, _weth, 3000));   
     }
 
-    function updateFee(uint24 newFee) external onlyOwner {
-        require(newFee == 500 || newFee == 3000 || newFee == 10000, "Invalid fee");
-        fee = newFee;
-        pool = IUniswapV3Pool(factory.getPool(usdc, weth, fee)); 
-    }
 
     
     function getTwap(uint32 _twapDuration) public view returns (uint256) {
