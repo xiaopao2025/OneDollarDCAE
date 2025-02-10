@@ -58,6 +58,7 @@ describe("OneDollarDCAE Contract", function () {
 
         await dcae.waitForDeployment();
         const dcaeAddress = await dcae.getAddress();
+        console.log("dceAddress:",dcaeAddress);
 
         const dcaeTokenAddress = await dcae.dcaeToken();
         dcaeTokenContract = new ethers.Contract(

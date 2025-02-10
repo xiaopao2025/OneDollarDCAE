@@ -6,7 +6,7 @@ const { addresses } = require("./address.json");
 const { swaprouterabi } = require("./swaprouter.json");
 
 describe("OneDollarDCAE Contract - Specific User Batch Execution", function () {
-    const USER_COUNT = 3;
+    const USER_COUNT = 40;
     const USDC_AMOUNT = ethers.parseUnits("1000", 6);
     const MIN_INVEST_AMOUNT = ethers.parseUnits("1", 6);
     
@@ -29,6 +29,7 @@ describe("OneDollarDCAE Contract - Specific User Batch Execution", function () {
         );
         await oracle.waitForDeployment();
         const oracleAddress = await oracle.getAddress();
+        console.log("oracleAddress:",oracleAddress);
         
         const OneDollarDCAE = await ethers.getContractFactory("OneDollarDCAE");
         dcae = await OneDollarDCAE.deploy(
@@ -39,13 +40,16 @@ describe("OneDollarDCAE Contract - Specific User Batch Execution", function () {
         );
         await dcae.waitForDeployment();
         const dcaeAddress = await dcae.getAddress();
+        console.log("dceAddress:",dcaeAddress);
         
         const dcaeTokenAddress = await dcae.dcaeToken();
+        console.log("dcaeTokenAddress:",dcaeTokenAddress);
         dcaeTokenContract = new ethers.Contract(
             dcaeTokenAddress,
             erc20abi,
             ethers.provider
         );
+        
         
         const swapETHForUSDC = async (signer) => {
             const blockTimestamp = await time.latest();
@@ -82,7 +86,7 @@ describe("OneDollarDCAE Contract - Specific User Batch Execution", function () {
         it("Allows 10 randomly selected users to execute their batch investments", async function () {
             // Randomly select 10 unique users
             const selectedUsers = [];
-            while (selectedUsers.length < 2) {
+            while (selectedUsers.length < 10) {
                 const randomIndex = Math.floor(Math.random() * USER_COUNT);
                 const user = users[randomIndex];
                 if (!selectedUsers.some(u => u.address === user.address)) {
@@ -98,7 +102,7 @@ describe("OneDollarDCAE Contract - Specific User Batch Execution", function () {
                 console.log(`User ${user.address} in Batch ${userBatch}`);
 
                 // Advance time to ensure investment interval has passed
-                await time.increase(86401);
+                await time.increase(121);
                 
                 // Get batch info before execution
                 const batchBefore = await dcae.batches(userBatch);
@@ -111,8 +115,8 @@ describe("OneDollarDCAE Contract - Specific User Batch Execution", function () {
                 const batchAfter = await dcae.batches(userBatch);
                 
                 // Check that nextInvestmentTime has been updated
-                console.log("batchBefore",batchBefore);
-                console.log("batchAfter",batchAfter);
+                //console.log("batchBefore",batchBefore);
+                //console.log("batchAfter",batchAfter);
                 
                 // Robust check for nextInvestmentTime
                 expect(batchAfter).to.exist;
@@ -129,3 +133,5 @@ describe("OneDollarDCAE Contract - Specific User Batch Execution", function () {
         });
     });
 });
+
+//npx hardhat test test/02test.js --network localhost

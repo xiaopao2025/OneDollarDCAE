@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 pragma abicoder v2;
 
-//import "hardhat/console.sol";
+import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -66,7 +66,7 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
     // Constant gas-efficient values with safety checks
     uint256 private constant MIN_INVEST_AMOUNT = 1 * 10**6; // 1 USDC
     uint256 private constant MAX_INVEST_AMOUNT = 1000 * 10**6; // 1000 USDC
-    uint256 private constant INVESTMENT_INTERVAL = 86400; // 86400 seconds
+    uint256 private constant INVESTMENT_INTERVAL = 120; // 86400 seconds
     uint24 private constant FEE = 3000; // 3000 fee ratio
     uint256 private constant MAX_BATCH_SIZE = 30;
     uint256 private constant SLIPPAGE_DENOMINATOR = 1000;
@@ -107,6 +107,23 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         dcaeToken = new DCAE();
     }
 
+    //function getBatchUsers(uint256 batchNumber) external view returns (address[] memory) {
+    //    return batches[batchNumber].users;
+    //}
+
+
+    function getUsersInfo(uint256 batchNumber) external view returns (User[] memory userInfoArray) {
+        address[] memory users = batches[batchNumber].users;
+        userInfoArray = new User[](users.length);
+        
+        for (uint256 i = 0; i < users.length; i++) {
+            userInfoArray[i] = userInfo[users[i]];
+        }
+        
+        return userInfoArray;
+    }
+
+
     function setInvestAmount(uint64 amount) external {
         _validateUser();
         require(amount >= MIN_INVEST_AMOUNT && amount <= MAX_INVEST_AMOUNT, "Invalid invest amount");
@@ -142,12 +159,11 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         unchecked { 
             totalUsers++;
             currentBatch = (totalUsers - 1) / MAX_BATCH_SIZE;
-            //totalBatches = uint64(currentBatch + 1);
         }
         user.inBatch = currentBatch + 1;
         user.investAmount = uint64(MIN_INVEST_AMOUNT);
         user.rewardRatio = 100;
-        user.burnTime = uint64(block.timestamp);
+        user.burnTime = uint64(block.timestamp + 30 * INVESTMENT_INTERVAL);
         
         batches[user.inBatch].users.push(msg.sender);
     }
@@ -323,7 +339,7 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
 
     function _validateBurnEligibility(User storage user) private {
         require(block.timestamp > user.burnTime, "Burn interval not passed");
-        user.burnTime = uint64(block.timestamp + INVESTMENT_INTERVAL);
+        user.burnTime = uint64(block.timestamp + 30 * INVESTMENT_INTERVAL);
     }
 
     function _calculateBurnReward(uint256 dcaeBalance) private view returns (uint256) {
@@ -335,20 +351,21 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         uint256 totalSupply = dcaeToken.totalSupply();
         require(totalSupply > 0, "No DCAE tokens in circulation");
 
-        //uint256 dcaeShare = dcaeBalance / totalSupply;
-        uint256 wETHFee = contractUser.wETH * dcaeBalance / totalSupply;
+        uint256 wETHFee = (contractUser.wETH * dcaeBalance * 99) / (totalSupply *100);
         require(wETHFee > 0, "Reward too small");
 
         return wETHFee;
     }
 
     function _transferBurnRewards(uint256 dcaeBalance, uint256 wETHFee) private {
-        User storage contractUser = userInfo[address(this)];
-        unchecked { contractUser.wETH -= uint128(wETHFee); }
-        IERC20(wETH).safeTransfer(msg.sender, wETHFee);
-
         IERC20(dcaeToken).safeTransferFrom(msg.sender, address(this), dcaeBalance);
         dcaeToken.burn(dcaeBalance);
+        unchecked { 
+            userInfo[address(this)].wETH -= uint128(wETHFee); 
+        }
+        IERC20(wETH).safeTransfer(msg.sender, wETHFee);
+
+        
 
         emit Burned(msg.sender, dcaeBalance, wETHFee);
     }

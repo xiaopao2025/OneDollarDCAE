@@ -42,6 +42,7 @@ contract Oracle {
         // Calculate price from sqrtPriceX96
         uint256 price = (uint256(sqrtPriceX96) * uint256(sqrtPriceX96) * 1e18) >> 192;
         
+        //console.log("TWAP Price: %s", price);
         return price;
     }
 }

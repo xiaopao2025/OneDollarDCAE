@@ -1,10 +1,10 @@
 {
     "addresses":
         {
-            "usdc":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-            "wETH":"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            "usdc":"0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+            "wETH":"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
             "factory":"0x1F98431c8aD98523631AE4a59f267346ea31F984",
             "swaprouter":"0xE592427A0AEce92De3Edee1F18E0157C05861564",
-            "WETH9":"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+            "WETH9":"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"
      }
 }
