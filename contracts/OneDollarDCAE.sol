@@ -107,10 +107,6 @@ contract OneDollarDCAE is ReentrancyGuard, Ownable {
         dcaeToken = new DCAE();
     }
 
-    //function getBatchUsers(uint256 batchNumber) external view returns (address[] memory) {
-    //    return batches[batchNumber].users;
-    //}
-
 
     function getUsersInfo(uint256 batchNumber) external view returns (User[] memory userInfoArray) {
         address[] memory users = batches[batchNumber].users;
