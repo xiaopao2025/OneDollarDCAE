@@ -13,6 +13,7 @@ describe("OneDollarDCAE Contract", function () {
     
     const USDC_AMOUNT = ethers.parseUnits("1000", 6); // 1000 USDC
     const MIN_INVEST_AMOUNT = ethers.parseUnits("1", 6); // 1 USDC
+    const INVESTMENT_INTERVAL = 86400 // 1 day
     
     beforeEach(async function () {
         // Get signers
@@ -127,7 +128,7 @@ describe("OneDollarDCAE Contract", function () {
         });
         
         it("Should execute investment for multiple users in batch", async function () {
-            await time.increase(86401);
+            await time.increase(INVESTMENT_INTERVAL);
             
             await dcae.connect(user4).executeInvestment(1);
             
@@ -159,7 +160,7 @@ describe("OneDollarDCAE Contract", function () {
     describe("Withdrawal Functions", function () {
         beforeEach(async function () {
             await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT * 2n);
-            await time.increase(121);
+            await time.increase(INVESTMENT_INTERVAL);
             await dcae.connect(user4).executeInvestment(1);
         });
         
@@ -183,7 +184,7 @@ describe("OneDollarDCAE Contract", function () {
         beforeEach(async function () {
             await dcae.connect(user1).depositUSDC(MIN_INVEST_AMOUNT * 10n);
             await dcae.connect(user2).depositUSDC(MIN_INVEST_AMOUNT * 10n);
-            await time.increase(121);
+            await time.increase(INVESTMENT_INTERVAL);
             await dcae.connect(user4).executeInvestment(1);
         });
         
@@ -192,6 +193,7 @@ describe("OneDollarDCAE Contract", function () {
             const dcaeBalance = await dcaeTokenContract.balanceOf(user1.address);
             
             await dcaeTokenContract.connect(user1).approve(await dcae.getAddress(), dcaeBalance);
+            await time.increase(30 * INVESTMENT_INTERVAL);
             await dcae.connect(user1).burnForFee();
             
             expect(await dcaeTokenContract.balanceOf(user1.address)).to.equal(0);
@@ -199,3 +201,5 @@ describe("OneDollarDCAE Contract", function () {
         });
     });
 });
+
+//npx hardhat test test/01test.js --network localhost
