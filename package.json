@@ -10,6 +10,7 @@
     "@openzeppelin/contracts": "^5.2.0",
     "@uniswap/v3-core": "^1.0.1",
     "@uniswap/v3-periphery": "^1.4.4",
-    "erc-20-abi": "^1.0.1"
+    "erc-20-abi": "^1.0.1",
+    "ethers": "^6.13.5"
   }
 }
