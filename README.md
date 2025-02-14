@@ -1,6 +1,6 @@
 # OneDollarDCAE
 
-OneDollarDCAE is a cutting-edge decentralized finance (DeFi) smart contract built on Ethereum. It empowers users to automate dollar-cost averaging (DCA) investments with USDC, while earning rewards in WETH through dynamic and transparent mechanisms. Designed for efficiency, scalability, and user engagement, OneDollarDCAE integrates advanced features like investment batching, token rewards, and burn mechanics to incentivize long-term participation.
+OneDollarDCAE is a cutting-edge decentralized finance (DeFi) smart contract built on Arbitrum. It empowers users to automate dollar-cost averaging (DCA) investments with USDC, while earning rewards in WETH through dynamic and transparent mechanisms. Designed for efficiency, scalability, and user engagement, OneDollarDCAE integrates advanced features like investment batching, token rewards, and burn mechanics to incentivize long-term participation.
 
 ## Introduction
 
@@ -103,8 +103,6 @@ npx hardhat run scripts/deploy.js --network <network_name>
 ### Interaction
 Use a frontend or scripts to interact with the deployed contract:
 
-**Contract Address**: [0xa87619defaa9b63f5d78ea69a4fbadea7341347e](https://arbiscan.io/address/0xa87619defaa9b63f5d78ea69a4fbadea7341347e)
-
 Key Functions:
 * `depositUSDC(uint256 amount)`
 * `setInvestAmount(uint64 amount)`
@@ -113,10 +111,12 @@ Key Functions:
 * `burnForFee()`
 * `withdrawUSDC()` and `withdrawWETH()`
 
-A simple frontend: [https://dcaefront.vercel.app/](https://dcaefront.vercel.app/)
+### Example
+**Contract Address**: [0xa87619defaa9b63f5d78ea69a4fbadea7341347e](https://arbiscan.io/address/0xa87619defaa9b63f5d78ea69a4fbadea7341347e)
+**A simple frontend**: [https://dcaefront.vercel.app/](https://dcaefront.vercel.app/)
 
 ## Question
-We welcome contributions! Please fork the repository and submit a pull request with your changes. For significant question, open an issue to discuss it.
+For significant question, open an issue to discuss it.
 
 ## License
 This project is licensed under the MIT License. See the LICENSE file for details.
