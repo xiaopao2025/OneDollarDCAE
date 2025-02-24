@@ -65,10 +65,10 @@ module.exports = {
     //  accounts: [`0x${PRIVATE_KEY}`]
     //}
     // Arbitrum配置
-    arbitrum: {
-      url: `https://arbitrum-mainnet.infura.io/v3/${INFURA_API_KEY}`,
+    //arbitrum: {
+    //  url: `https://arbitrum-mainnet.infura.io/v3/${INFURA_API_KEY}`,
     //  accounts: [`0x${PRIVATE_KEY}`]
-    }
+    //}
   },
   
   // Etherscan验证配置

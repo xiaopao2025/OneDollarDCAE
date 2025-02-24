@@ -112,8 +112,28 @@ Key Functions:
 * `withdrawUSDC()` and `withdrawWETH()`
 
 ### Example
-**Contract Address**: [0xa87619defaa9b63f5d78ea69a4fbadea7341347e](https://arbiscan.io/address/0xa87619defaa9b63f5d78ea69a4fbadea7341347e)
-**A simple frontend**: [https://dcaefront.vercel.app/](https://dcaefront.vercel.app/)
+**Contract Address**: 
+[0xa87619defaa9b63f5d78ea69a4fbadea7341347e](https://arbiscan.io/address/0xa87619defaa9b63f5d78ea69a4fbadea7341347e)
+
+**A simple frontend**: 
+[https://onedollardcae.xyz/](https://onedollardcae.xyz/)
+
+**The backup frontend**: 
+[https://dcaefront.vercel.app/](https://dcaefront.vercel.app/)
+
+
+### Python Client
+A python script has been added to allow users to execute the executeInvestment function regularly, which can be run in Python 3+ or Docker containers.
+
+Python:
+cd pythonclient
+cp .env.example .env
+pip install -r requirements.txt
+python executeDCA.py
+
+Docker:
+Please refer to the Dockerfile content.
+
 
 ## Question
 For significant question, open an issue to discuss it.
@@ -124,4 +144,4 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ## Contact
 For questions, suggestions, or feedback, reach out to:
 
-Telegram: [t.me/xyz9418666](https://t.me/xyz9418666)
+Telegram: [t.me/onedollardcae](https://t.me/onedollardcae)
