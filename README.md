@@ -125,11 +125,13 @@ Key Functions:
 ### Python Client
 A python script has been added to allow users to execute the executeInvestment function regularly, which can be run in Python 3+ or Docker containers.
 
+```bash
 Python:
 cd pythonclient
 cp .env.example .env
 pip install -r requirements.txt
 python executeDCA.py
+```
 
 Docker:
 Please refer to the Dockerfile content.
